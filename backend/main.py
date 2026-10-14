@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Literal
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 
 
@@ -25,11 +27,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-   allow_origins=[
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://interview-ai-xi-six.vercel.app",
-],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://interview-ai-xi-six.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1599,6 +1601,11 @@ gemini_client = (
     else None
 )
 
+# Cache identical question selections briefly to make retries/repeated starts fast.
+# Entries contain only generic interview questions, never personal candidate data.
+QUESTION_CACHE_TTL_SECONDS = 300
+_question_cache: dict[tuple, tuple[float, dict]] = {}
+
 
 class AIChatRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
@@ -1668,10 +1675,17 @@ Instructions:
 """
 
     try:
+        started_at = time.perf_counter()
         response = gemini_client.models.generate_content(
             model="gemini-3.5-flash-lite",
             contents=prompt,
+            config=types.GenerateContentConfig(
+                # Short coach replies feel much more responsive.
+                max_output_tokens=350 if request.action in ("hint", "structure") else 600,
+                thinking_config=types.ThinkingConfig(thinking_level="minimal"),
+            ),
         )
+        print(f"Gemini AI Coach ({request.action}) completed in {time.perf_counter() - started_at:.2f}s")
 
         reply = (response.text or "").strip()
 
@@ -1691,11 +1705,11 @@ Instructions:
         raise
 
     except Exception as error:
-        print("Gemini AI Coach error:", error)
+        print("Gemini AI Coach error:", repr(error))
 
         raise HTTPException(
             status_code=502,
-            detail="The AI Coach request failed. Check the backend terminal.",
+            detail=f"AI Coach temporarily failed ({type(error).__name__}). Please retry; details are recorded in Render Logs.",
         )
 
 # ============================================================
@@ -1725,7 +1739,7 @@ class AIInterviewEvaluationRequest(BaseModel):
     answers: list[AIInterviewAnswer] = Field(min_length=1, max_length=50)
 
 
-def _gemini_json_response(prompt: str) -> dict:
+def _gemini_json_response(prompt: str, max_output_tokens: int = 4096) -> dict:
     """Ask Gemini for JSON and parse it defensively."""
     if gemini_client is None:
         raise HTTPException(
@@ -1733,11 +1747,17 @@ def _gemini_json_response(prompt: str) -> dict:
             detail="Gemini API key is not configured in backend/.env",
         )
 
+    started_at = time.perf_counter()
     response = gemini_client.models.generate_content(
         model="gemini-3.5-flash-lite",
         contents=prompt,
-        config={"response_mime_type": "application/json"},
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            max_output_tokens=max_output_tokens,
+            thinking_config=types.ThinkingConfig(thinking_level="minimal"),
+        ),
     )
+    print(f"Gemini JSON generation completed in {time.perf_counter() - started_at:.2f}s")
     raw = (response.text or "").strip()
     if not raw:
         raise HTTPException(status_code=502, detail="Gemini returned an empty response.")
@@ -1804,12 +1824,23 @@ Rules:
 - Include a balanced set of fundamentals, applied problem solving, and practical scenarios appropriate for the selected role.
 - Avoid duplicate questions, trivia, ambiguous wording, and assumptions that require private information.
 - For company-style interviews, emulate the general format only; do not claim these are actual or confidential company questions.
-- Each reference_answer must be a compact evaluation guide, not a long textbook answer.
-- Keep the language professional and accessible.
+- Each question should be no more than 25 words.
+- Each reference_answer must be a compact guide of no more than 45 words.
+- Keep the language professional, direct, and accessible.
 """
 
+    cache_key = (request.role, request.track, request.organization, request.difficulty, request.count)
+    now = time.monotonic()
+    cached = _question_cache.get(cache_key)
+    if cached and now - cached[0] < QUESTION_CACHE_TTL_SECONDS:
+        print("Gemini question cache hit; returning cached question set")
+        return {**cached[1], "cached": True}
+
     try:
-        generated = _gemini_json_response(prompt)
+        generated = _gemini_json_response(
+            prompt,
+            max_output_tokens=min(12000, 1500 + request.count * 250),
+        )
         raw_questions = generated.get("questions")
         if not isinstance(raw_questions, list) or len(raw_questions) < request.count:
             raise HTTPException(status_code=502, detail="Gemini did not generate the requested number of questions.")
@@ -1837,19 +1868,26 @@ Rules:
         if len(questions) != request.count:
             raise HTTPException(status_code=502, detail="Gemini returned incomplete questions. Please try again.")
 
-        return {
+        result = {
             "success": True,
             "source": "gemini",
             "requested_count": request.count,
             "questions": questions,
         }
+        _question_cache[cache_key] = (time.monotonic(), result)
+        # Drop expired cache entries to keep memory use bounded.
+        expired_keys = [key for key, (created, _) in _question_cache.items()
+                        if time.monotonic() - created >= QUESTION_CACHE_TTL_SECONDS]
+        for key in expired_keys:
+            _question_cache.pop(key, None)
+        return result
     except HTTPException:
         raise
     except Exception as error:
-        print("Gemini question generation error:", error)
+        print("Gemini question generation error:", repr(error))
         raise HTTPException(
             status_code=502,
-            detail="Gemini could not generate questions. Check the backend terminal and try again.",
+            detail=f"Gemini question generation failed ({type(error).__name__}). Please retry; details are recorded in Render Logs.",
         )
 
 
@@ -1905,14 +1943,20 @@ Return ONLY a valid JSON object in exactly this general structure:
 Rules:
 - Return one question_feedback entry for every supplied question, in the same order.
 - Each score must be an integer from 0 to 20. Assess fairly against the question and guide.
-- Keep strengths, areas_to_improve, and next_steps concrete and relevant; use no more than 5 items in each list.
+- Keep each question's feedback to 1-2 short sentences (maximum 35 words).
+- Limit matched_concepts and missing_concepts to 3 items each.
+- Keep summary and readiness_summary to 2 short sentences each.
+- Keep strengths, areas_to_improve, and next_steps concrete; use no more than 3 items in each list.
 - State the readiness recommendation as PRACTICE GUIDANCE, not a guarantee of getting hired or passing a real interview. Do not claim certainty about an employer's decision.
 - Be encouraging but honest. Avoid generic praise if the answers do not support it.
 - Output JSON only; do not include Markdown fences or any prose outside JSON.
 """
 
     try:
-        ai_result = _gemini_json_response(prompt)
+        ai_result = _gemini_json_response(
+            prompt,
+            max_output_tokens=min(12000, 1400 + len(request.answers) * 260),
+        )
         raw_feedback = ai_result.get("question_feedback", [])
         if not isinstance(raw_feedback, list):
             raw_feedback = []
@@ -1984,8 +2028,8 @@ Rules:
     except HTTPException:
         raise
     except Exception as error:
-        print("Gemini interview evaluation error:", error)
+        print("Gemini interview evaluation error:", repr(error))
         raise HTTPException(
             status_code=502,
-            detail="Gemini could not evaluate this interview. Check the backend terminal and try again.",
+            detail=f"Gemini evaluation failed ({type(error).__name__}). Please retry; details are recorded in Render Logs.",
         )
