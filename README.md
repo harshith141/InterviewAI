@@ -10,6 +10,22 @@
 
 ---
 
+## 📸 Project Screenshots
+
+### 1. Landing Page
+![InterviewAI Landing Page](docs/screenshots/landing-page.png)
+
+### 2. Interview Setup
+![Interview Setup](docs/screenshots/interview-setup.png)
+
+### 3. Live Interview and AI Practice Coach
+![Live Interview and AI Practice Coach](docs/screenshots/live-interview.png)
+
+### 4. Progress and Analytics
+![Interview Progress and Analytics](docs/screenshots/progress-analytics.png)
+
+---
+
 ## 🚀 Features
 
 ### 1. AI-Powered Interview Question Generation
@@ -39,7 +55,10 @@ Generate a downloadable PDF report containing interview evaluation results and f
 ### 6. User Authentication
 Firebase Authentication supports configured sign-in methods, including Google and email/password authentication.
 
-### 7. Responsive User Interface
+### 7. Progress and Analytics
+Review interview performance metrics and score trends to monitor practice progress.
+
+### 8. Responsive User Interface
 An interactive web interface designed to make interview preparation accessible through a modern browser.
 
 ---
@@ -62,32 +81,32 @@ An interactive web interface designed to make interview preparation accessible t
 ## 🏗️ System Architecture
 
 ```text
-             Candidate
-                 |
-                 v
-       React Frontend (Vercel)
-                 |
-          REST API Requests
-                 |
-                 v
-       FastAPI Backend (Render)
-                 |
-                 v
-          Google Gemini API
-                 |
-       +---------+----------+
-       |         |          |
-       v         v          v
-   Question   AI Coach   Evaluation
-  Generation  Responses  & Feedback
-       |         |          |
-       +---------+----------+
-                 |
-                 v
-        Results in Frontend
-                 |
-                 v
-          Downloadable PDF
+                       Candidate
+                           |
+                           v
+                React Frontend (Vercel)
+                           |
+                    REST API Requests
+                           |
+                           v
+                 FastAPI Backend (Render)
+                           |
+                           v
+                   Google Gemini API
+                           |
+              +------------+------------+
+              |            |            |
+              v            v            v
+         Question       AI Coach    Evaluation
+        Generation     Responses    & Feedback
+              |            |            |
+              +------------+------------+
+                           |
+                           v
+                 Results in Frontend
+                           |
+                           v
+                  Downloadable PDF
 ```
 
 Firebase Authentication manages supported sign-in methods separately from the interview-generation and evaluation flow.
@@ -110,6 +129,12 @@ InterviewAI/
 │   │   └── main.jsx
 │   ├── package.json
 │   └── index.html
+├── docs/
+│   └── screenshots/
+│       ├── landing-page.png
+│       ├── interview-setup.png
+│       ├── live-interview.png
+│       └── progress-analytics.png
 ├── .gitignore
 └── README.md
 ```
@@ -230,7 +255,7 @@ For request schemas and interactive testing, visit the [InterviewAI API Document
 - Never commit `.env` files, passwords, service-account files, or private credentials.
 - Configure production environment variables through the appropriate hosting dashboards.
 - Variables prefixed with `VITE_` are included in the browser build. Do not place server-side secrets in them.
-- Firebase web configuration is used by the client application; secure access through Firebase Authentication, authorized domains, and the appropriate Firebase security rules.
+- Firebase web configuration is used by the client application; protect access through Firebase Authentication, authorized domains, and appropriate Firebase security rules.
 
 ---
 
@@ -249,8 +274,7 @@ The project is deployed using:
 Potential improvements include:
 
 - Resume-based personalized interview questions.
-- Detailed skill-wise performance analytics.
-- Interview history and progress dashboards.
+- More detailed skill-wise performance analytics.
 - Additional programming languages and technical domains.
 - More comprehensive automated testing.
 
