@@ -13,16 +13,16 @@
 ## 📸 Project Screenshots
 
 ### 1. Landing Page
-![InterviewAI Landing Page](docs/screenshots/landing-page.png)
+![InterviewAI Landing Page](screenshots/landing-page.png)
 
 ### 2. Interview Setup
-![Interview Setup](docs/screenshots/interview-setup.png)
+![Interview Setup](screenshots/interview-setup.png)
 
 ### 3. Live Interview and AI Practice Coach
-![Live Interview and AI Practice Coach](docs/screenshots/live-interview.png)
+![Live Interview and AI Practice Coach](screenshots/live-interview.png)
 
 ### 4. Progress and Analytics
-![Interview Progress and Analytics](docs/screenshots/progress-analytics.png)
+![Interview Progress and Analytics](screenshots/progress-analytics.png)
 
 ---
 
